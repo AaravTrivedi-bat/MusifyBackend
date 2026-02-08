@@ -23,5 +23,5 @@ ENV PATH="/home/user/.local/bin:$PATH"
 # Copy the rest of the app code
 COPY --chown=user . .
 
-# Run the app on port 7860
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]
+# CRITICAL FIX: Listen on Port 8000 (Koyeb's Default)
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
