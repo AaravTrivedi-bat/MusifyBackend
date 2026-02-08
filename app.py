@@ -1,6 +1,7 @@
 import requests
 import logging
 import random
+import time
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import RedirectResponse
 from ytmusicapi import YTMusic
@@ -15,35 +16,39 @@ logger = logging.getLogger(__name__)
 # 1. The Search Brain (YouTube Music)
 yt = YTMusic()
 
-# 2. The Streaming Swarm (Piped Instances)
-# We rotate through these to ensure we never get blocked.
+# 2. The Mega Swarm (Fresh List - Feb 2026)
+# We mix official, community, and Linux distro instances for maximum survival.
 PIPED_INSTANCES = [
-    "https://pipedapi.kavin.rocks",
-    "https://api.piped.video",
-    "https://pipedapi.tokhmi.xyz",
-    "https://piped-api.garudalinux.org",
-    "https://api.piped.projectsegfau.lt",
-    "https://pipedapi.wglab.net",
-    "https://api.martinfc.eu",
-    "https://pipedapi.drgns.space"
+    "https://pipedapi.kavin.rocks",          # Official (Global)
+    "https://pipedapi.tokhmi.xyz",           # US
+    "https://pipedapi.moomoo.me",            # UK
+    "https://pipedapi.syncpundit.io",        # India/US/Japan (Fast for Asia)
+    "https://api-piped.mha.fi",              # Finland
+    "https://piped-api.garudalinux.org",     # Garuda Linux (Reliable)
+    "https://pipedapi.rivo.lol",             # Chile
+    "https://pipedapi.leptons.xyz",          # Austria
+    "https://piped-api.lunar.icu",           # Germany
+    "https://ytapi.dc09.ru",                 # Russia
+    "https://pipedapi.r4fo.com",             # Germany
+    "https://api.piped.privacy.com.de",      # Germany
+    "https://pipedapi.smnz.de",              # Germany
+    "https://api.piped.projectsegfau.lt",    # Lithuania
+    "https://pipedapi.wglab.net",            # Global
+    "https://api.martinfc.eu",               # Europe
+    "https://pipedapi.drgns.space"           # US
 ]
 
 def search_youtube_music(query):
-    """
-    Uses YouTube Music's superior algorithm to find the EXACT match.
-    """
     try:
         logger.info(f"Searching YTM for: {query}")
-        # filter='songs' ensures we don't get fan-made videos or covers
+        # Search for songs to ensure we get the original, not a cover video
         results = yt.search(query, filter="songs")
         
         if not results:
-            # Fallback to general search if 'songs' filter misses (rare)
             results = yt.search(query)
             
         if not results: return None
 
-        # The #1 result on YTM is always the most relevant (The Original)
         top_result = results[0]
         video_id = top_result.get('videoId')
         title = top_result.get('title')
@@ -58,16 +63,19 @@ def search_youtube_music(query):
 
 def get_stream_from_piped(video_id):
     """
-    Asks the Piped Swarm for a direct audio link for this ID.
+    Tries to fetch a stream from the Piped Swarm.
+    Includes retry logic and timeouts.
     """
-    # Randomize the list so we don't hammer one server
     instances = PIPED_INSTANCES.copy()
-    random.shuffle(instances)
+    random.shuffle(instances) # Randomize to load-balance
 
     for base_url in instances:
         try:
-            # Piped Endpoint: /streams/{video_id}
-            resp = requests.get(f"{base_url}/streams/{video_id}", timeout=3)
+            # logger.info(f"Trying: {base_url}")
+            url = f"{base_url}/streams/{video_id}"
+            
+            # Short timeout (2s) so we don't hang if a server is slow
+            resp = requests.get(url, timeout=2.5)
             
             if resp.status_code != 200: continue
             
@@ -76,52 +84,50 @@ def get_stream_from_piped(video_id):
             
             if not audio_streams: continue
             
-            # Look for m4a (best for Discord/FFmpeg)
+            # 1. Prefer m4a (Best for Discord)
             for stream in audio_streams:
                 if stream.get('format') == 'm4a':
                     return stream['url']
             
-            # Fallback to any audio
+            # 2. Fallback to any audio
             return audio_streams[0]['url']
 
         except Exception:
-            # Silently fail and try the next instance
             continue
     
     return None
 
 @app.get("/")
 def home():
-    return {"status": "alive", "engine": "Hybrid (YTM + Piped)", "platform": "Koyeb"}
+    return {"status": "alive", "engine": "Hybrid Mega-Swarm V2", "platform": "Koyeb"}
 
 @app.get("/health")
 def health_check():
-    """Koyeb uses this to check if the app is running"""
     return {"status": "ok"}
 
 @app.get("/stream")
 def get_stream(q: str):
     if not q: raise HTTPException(status_code=400, detail="Query empty")
     
-    # Clean query
+    # Clean query (Remove quotes)
     q = q.replace('"', '').strip()
     
-    # 1. SEARCH (Accuracy Phase)
+    # 1. SEARCH
     video_id = search_youtube_music(q)
     
     if not video_id:
         raise HTTPException(status_code=404, detail="Song not found on YouTube Music")
         
-    # 2. STREAM (Delivery Phase)
+    # 2. STREAM
     stream_url = get_stream_from_piped(video_id)
     
     if stream_url:
         return RedirectResponse(url=stream_url, status_code=307)
     
-    logger.error("All Piped instances failed to stream.")
-    raise HTTPException(status_code=500, detail="Stream unavailable")
+    logger.error("Mega Swarm exhausted. All 17 instances failed.")
+    raise HTTPException(status_code=500, detail="Stream unavailable - Swarm Busy")
 
 if __name__ == "__main__":
     import uvicorn
-    # CRITICAL FIX: Run on port 8000
+    # Correct Port for Koyeb
     uvicorn.run(app, host="0.0.0.0", port=8000)
